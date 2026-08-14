@@ -1,0 +1,26 @@
+name: 'olist_analytics'
+version: '2.0.0'
+config-version: 2
+
+profile: 'olist_analytics'
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  bronze_dataset: "{{ env_var('BQ_BRONZE_DATASET', 'olist_bronze') }}"
+
+models:
+  olist_analytics:
+    staging:
+      +schema: silver
+      +materialized: view
+    intermediate:
+      +schema: silver
+      +materialized: ephemeral
+    marts:
+      +schema: gold
+      +materialized: table

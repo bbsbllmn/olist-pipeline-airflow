@@ -1,0 +1,4 @@
+project                   = "your-gcp-project-id"
+region                    = "us-central1"
+gcs_bucket_name           = "olist-bucket-prod-yourname"
+composer_service_account  = "olist-composer@your-gcp-project-id.iam.gserviceaccount.com"

@@ -1,0 +1,104 @@
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ""
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
+    AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT: "300"
+    AIRFLOW__WEBSERVER__WORKER_REFRESH_BATCH_SIZE: "1"
+    AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT: "120"
+    AIRFLOW__CORE__MP_START_METHOD: "spawn"
+    PYTHONPATH: "/opt/airflow"
+    GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/keys/gcp-credentials.json
+    AIRFLOW_VAR_GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+    GCP_REGION: ${GCP_REGION:-us-central1}
+    AIRFLOW_VAR_GCS_BUCKET: ${GCS_BUCKET}
+    BQ_BRONZE_DATASET: ${BQ_BRONZE_DATASET:-olist_bronze}
+    BQ_SILVER_DATASET: ${BQ_SILVER_DATASET:-olist_silver}
+    BQ_GOLD_DATASET: ${BQ_GOLD_DATASET:-olist_gold}
+    KAGGLE_USERNAME: ${KAGGLE_USERNAME}
+    KAGGLE_KEY: ${KAGGLE_KEY}
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    DBT_PROFILES_DIR: /opt/airflow/dbt/olist_analytics
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./plugins:/opt/airflow/plugins
+    - ./include:/opt/airflow/include
+    - ./dbt:/opt/airflow/dbt
+    - ./keys:/opt/airflow/keys
+    - airflow-logs:/opt/airflow/logs
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create --username airflow --password airflow \
+          --firstname Abbas --lastname Billiamin --role Admin --email admin@example.com
+        airflow connections add 'google_cloud_default' \
+        --conn-type 'google_cloud_platform' \
+        --conn-extra '{"extra__google_cloud_platform__project": "'"${GCP_PROJECT_ID}"'", "extra__google_cloud_platform__key_path": "/opt/airflow/keys/gcp-credentials.json"}' \
+        || true  
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 300s
+      retries: 5
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  ai-nl2sql-api:
+    <<: *airflow-common
+    entrypoint: []
+    command: uvicorn include.ai.nl_to_sql:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-db:
+  airflow-logs:

@@ -1,0 +1,49 @@
+version: 2
+
+models:
+  - name: fct_sales
+    description: >
+      Core sales fact table, one row per order line item. Partitioned by
+      order_purchase_date, clustered by category and payment type.
+    columns:
+      - name: order_id
+        tests: [not_null]
+      - name: revenue
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+
+  - name: fct_delivery_performance
+    description: >
+      Actual vs. estimated delivery lead time per delivered order.
+    columns:
+      - name: order_id
+        tests: [unique, not_null]
+
+  - name: dim_customers_rfm
+    description: >
+      One row per unique customer with Recency/Frequency/Monetary scores
+      (1-5) and a business-readable segment label.
+    columns:
+      - name: customer_unique_id
+        tests: [unique, not_null]
+      - name: customer_segment
+        tests:
+          - accepted_values:
+              values: ['Champions', 'New / Promising', 'At Risk (high value)',
+                        'Lost / Low Value', 'Needs Attention']
+
+  - name: dim_sellers_performance
+    description: >
+      One row per seller: revenue, average review score, late-delivery rate.
+    columns:
+      - name: seller_id
+        tests: [unique, not_null]
+
+  - name: mart_monthly_revenue
+    description: >
+      Revenue pre-aggregated by month x category, with MoM/YoY growth,
+      built directly for Looker Studio.
+    columns:
+      - name: order_month
+        tests: [not_null]

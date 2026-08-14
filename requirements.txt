@@ -1,0 +1,24 @@
+# Airflow GCP provider (BigQuery, GCS operators/hooks)
+apache-airflow-providers-google==10.24.0
+
+# Ingestion
+dlt[bigquery,filesystem]==1.4.1
+kagglehub==1.0.2
+
+# Transformation
+dbt-core==1.8.7
+dbt-bigquery==1.8.3
+
+# AI layer
+anthropic==0.34.2
+fastapi==0.112.2
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+
+# Data / stats for anomaly detection
+pandas>=2.1.2,<2.2
+numpy==1.26.4
+google-cloud-bigquery==3.25.0
+
+# Notifications
+requests==2.32.3
