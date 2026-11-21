@@ -5,7 +5,7 @@
   )
 }}
 
--- Actual vs. estimated delivery performance per order. Business use: which
+-- Actual vs. estimated delivery performance per order and seller. Business use: which
 -- states/sellers are chronically late, and how much lead-time buffer Olist
 -- should quote customers by region.
 with orders as (

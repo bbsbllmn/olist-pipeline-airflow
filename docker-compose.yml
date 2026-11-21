@@ -1,4 +1,5 @@
 x-airflow-common: &airflow-common
+  user: "${AIRFLOW_UID:-50000}:0"
   build:
     context: .
     dockerfile: Dockerfile
@@ -18,6 +19,7 @@ x-airflow-common: &airflow-common
     AIRFLOW_VAR_GCP_PROJECT_ID: ${GCP_PROJECT_ID}
     GCP_REGION: ${GCP_REGION:-us-central1}
     AIRFLOW_VAR_GCS_BUCKET: ${GCS_BUCKET}
+    GCP_PROJECT_ID: ${GCP_PROJECT_ID}
     BQ_BRONZE_DATASET: ${BQ_BRONZE_DATASET:-olist_bronze}
     BQ_SILVER_DATASET: ${BQ_SILVER_DATASET:-olist_silver}
     BQ_GOLD_DATASET: ${BQ_GOLD_DATASET:-olist_gold}
@@ -59,6 +61,7 @@ services:
     command:
       - -c
       - |
+        set -e
         airflow db migrate
         airflow users create --username airflow --password airflow \
           --firstname Abbas --lastname Billiamin --role Admin --email admin@example.com

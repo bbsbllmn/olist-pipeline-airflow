@@ -3,7 +3,7 @@ version: 2
 sources:
   - name: olist_bronze
     database: "{{ env_var('GCP_PROJECT_ID', target.database) }}"
-    schema: "{{ var('bronze_dataset') }}"
+    schema: "olist_bronze"
     loader: airflow (GCSToBigQueryOperator)
     tables:
       - name: orders

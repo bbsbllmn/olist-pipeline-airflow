@@ -8,11 +8,12 @@ resource "google_composer_environment" "olist_airflow" {
       image_version = var.composer_image_version
 
       pypi_packages = {
-        dbt-core      = "==1.8.7"
-        dbt-bigquery  = "==1.8.3"
-        dlt           = "[bigquery,filesystem]==1.4.1"
-        anthropic     = "==0.34.2"
-        kaggle        = "==1.6.17"
+        dbt-core     = "==1.8.7"
+        dbt-bigquery = "==1.8.3"
+        dlt          = "[bigquery,filesystem]==1.4.1"
+        anthropic    = "==0.34.2"
+        httpx        = "==0.27.2"
+        kaggle       = "==1.6.17"
       }
 
       env_variables = {

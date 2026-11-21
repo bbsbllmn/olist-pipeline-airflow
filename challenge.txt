@@ -1,0 +1,134 @@
+Olist dbt transform DAG: failure analysis and fix
+================================================
+
+Summary
+-------
+The olist_dbt_transform_dag run failed before it could build any models. The
+first failing task was dbt_deps, which returned exit code 2. Investigation of
+the persisted Airflow task logs and a reproduction in the Airflow container
+identified a filesystem-permission error. Fixing that revealed a second,
+independent dbt profile configuration error that would also have prevented a
+successful build.
+
+Failure 1: dbt_deps could not write to the project directory
+------------------------------------------------------------
+Airflow runs `cd /opt/airflow/dbt/olist_analytics && dbt deps`. dbt deps
+resolves packages and writes a package-lock.yml file to the dbt project
+directory. It also installs packages into dbt_packages/.
+
+The local Docker Compose containers ran as UID 50000, while the host-mounted
+dbt project directory and its files belonged to UID 1000 and were not
+writable by UID 50000. The detailed dbt error was:
+
+  PermissionError: [Errno 13] Permission denied:
+  '/opt/airflow/dbt/olist_analytics/package-lock.yml'
+
+Airflow reported this subprocess failure as exit code 2 and retried the task.
+Since dbt_deps is upstream of dbt_build, the model build and documentation
+generation never started.
+
+Fix:
+* Configure the shared Airflow Compose services to run as
+  `${AIRFLOW_UID:-1000}:0`.
+* Add AIRFLOW_UID=1000 to .env.example. On hosts that use a different UID,
+  set AIRFLOW_UID in .env to the output of `id -u`.
+* Document the UID requirement in the README quickstart.
+
+This makes the container process owner match the owner of the bind-mounted
+project files, allowing dbt deps to create its lock file and install packages.
+
+Failure 2: duplicate BigQuery profile timeout settings
+------------------------------------------------------
+Once the project directory was writable, `dbt parse` could inspect the project
+and exposed another error in the dev target of profiles.yml:
+
+  Credentials in profile "olist_analytics", target "dev" invalid:
+  Got duplicate keys: (timeout_seconds) all map to
+  "job_execution_timeout_seconds"
+
+The dbt-bigquery adapter treats timeout_seconds and
+job_execution_timeout_seconds as aliases for the same setting. Specifying
+both causes profile validation to fail.
+
+Fix:
+* Remove timeout_seconds from the dev target.
+* Keep job_execution_timeout_seconds: 600.
+* Apply the same change to profiles.yml.example so the example remains
+  consistent with the working profile.
+
+Validation performed
+--------------------
+In the Airflow container, using the configured UID:
+* dbt deps completed successfully and installed the configured packages.
+* dbt parse completed successfully and registered the BigQuery adapter.
+* `docker compose config --quiet` passed.
+* `git diff --check` passed.
+
+dbt deps printed a deprecation warning for calogica/dbt_expectations. It was
+non-fatal and did not prevent parsing.
+
+A full dbt build was not run during this investigation because it executes
+queries against BigQuery and requires the project's live credentials and data.
+After deploying the changes, trigger the DAG again and confirm that dbt_deps,
+dbt_build, and dbt_docs_generate complete successfully in the Airflow UI.
+
+Failure 3: fct_delivery_performance order_id uniqueness test
+----------------------------------------------------------------
+The Airflow dbt build reached the marts and exposed a uniqueness failure in
+fct_delivery_performance:
+
+  Failure in test unique_fct_delivery_performance_order_id
+  Got 1275 results, configured to fail if != 0
+
+The model joins stg_order_items and, therefore, has order-and-seller grain:
+an order containing items from multiple sellers must have one row for each
+distinct `(order_id, seller_id)` combination. stg_order_items and
+fct_delivery_performance are not one row per order in this case, so declaring
+only `order_id` unique was incorrect.
+
+Fix:
+* Remove the `order_id` uniqueness test.
+* Keep `order_id` as a `not_null` test.
+* Add a model-level `dbt_utils.unique_combination_of_columns` test for
+  `order_id` and `seller_id`.
+* Document the fact's order-and-seller grain in the model description.
+
+The corrected test configuration is:
+
+```yaml
+  - name: fct_delivery_performance
+    description: >
+      Actual vs. estimated delivery lead time per delivered order and seller.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - order_id
+            - seller_id
+    columns:
+      - name: order_id
+        data_tests: [not_null]
+```
+
+The corresponding model logic remains based on distinct order/seller pairs:
+
+```sql
+items as (
+    select distinct order_id, seller_id
+    from {{ ref('stg_order_items') }}
+)
+```
+
+The test must be placed at model level, under `data_tests`, rather than under
+the `seller_id` column. Initially placing the combination test under a column
+caused dbt parse to pass the column-name argument to the macro and fail with:
+
+  macro 'dbt_macro__test_unique_combination_of_columns'
+  takes no keyword argument 'column_name'
+
+Validation
+----------
+* `git diff --check` passed.
+* `dbt parse --profiles-dir .` completed successfully in the Airflow
+  scheduler container after the model-level test was used.
+* The original build failure was resolved by matching the test to the actual
+  order-and-seller fact grain.
